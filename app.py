@@ -1,39 +1,39 @@
 import streamlit as st
 import requests
 import json
-import os
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
-# Nonaktifkan peringatan SSL (digunakan untuk koneksi internal svc.cluster.local)
+# Nonaktifkan peringatan SSL (digunakan untuk koneksi ke External Route)
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
-# Lokasi standar token Service Account di dalam pod Kubernetes
-TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+st.set_page_config(page_title="LLM Client", layout="wide")
+st.title("💬 LLM Chat Client (Manual Token Auth)")
 
-st.set_page_config(page_title="Dynamic LLM Client", layout="wide")
-st.title("💬 Dynamic LLM Chat Client (OpenShift AI Test)")
+# --- FASE II Kredensial dari OpenShift ---
+# GANTI placeholder ini dengan URL External Endpoint Anda yang spesifik:
+# https://chris-deploy-chris-project.apps.cluster-mm7hm.mm7hm.sandbox2204.opentlc.com
+EXTERNAL_ENDPOINT_URL = "https://chris-deploy-chris-project.apps.cluster-mm7hm.mm7hm.sandbox2204.opentlc.com"
 
 # --- Sidebar untuk Konfigurasi Endpoint ---
 with st.sidebar:
     st.header("⚙️ Konfigurasi Model & Auth")
     
-    # Input URL Endpoint LLM (fleksibel)
+    # URL model (diisi dari FASE II)
     llm_api_url = st.text_input(
         "Model Inference Endpoint URL", 
-        # Menggunakan Internal Endpoint (paling direkomendasikan jika Auth SA aktif)
-        value="https://chris-deploy.chris-test-project.svc.cluster.local", 
-        help="Masukkan URL endpoint model LLM Anda (Internal SVC direkomendasikan)."
+        value=EXTERNAL_ENDPOINT_URL, 
+        help="Gunakan External Route Model Deployment."
     )
     
-    # Input Opsional untuk Token Manual
+    # TOKEN WAJIB DIISI (dari FASE II)
     api_token = st.text_input(
         "Manual API Token (Bearer)", 
         type="password", 
         value="", 
-        help="Kosongkan field ini agar aplikasi otomatis menggunakan Service Account Token internal."
+        help="WAJIB DIISI! Tempelkan token yang didapat dari detail Model Deployment."
     )
     
-    st.caption("Otentikasi: Aplikasi akan otomatis mencoba menggunakan Service Account Token internal jika Token Manual kosong.")
+    st.caption("Status Auth: Manual Token Required.")
 
     st.subheader("Parameter Generasi")
     temperature = st.slider("Temperature", 0.0, 1.0, 0.7, 0.05)
@@ -42,33 +42,18 @@ with st.sidebar:
 # --- Fungsi untuk Memanggil API LLM ---
 def generate_response(messages, url, token, temp, max_tok):
     
-    if not url:
-        return None 
+    # Memastikan URL dan Token diisi (WAJIB)
+    if not url or not token: 
+        st.error("URL dan Token WAJIB DIISI di sidebar.")
+        return None
 
-    headers = {"Content-Type": "application/json"}
-    auth_source = "None"
-    
-    # --- LOGIKA OTENTIKASI: MEMASTIKAN TOKEN DIKIRIM UNTUK MENGATASI 403 ---
-    
-    # 1. Prioritaskan Token dari input sidebar (manual)
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-        auth_source = "Manual Token Used"
-        
-    # 2. Jika Token Manual kosong, gunakan Token Service Account internal
-    elif os.path.exists(TOKEN_PATH):
-        try:
-            with open(TOKEN_PATH, 'r') as f:
-                sa_token = f.read().strip()
-            headers["Authorization"] = f"Bearer {sa_token}"
-            auth_source = "Service Account Token Used"
-        except Exception as e:
-            st.warning(f"Gagal membaca Service Account Token: {e}")
-            auth_source = "Failed SA Token Read"
+    # HANYA MENGIRIM HEADER DENGAN TOKEN MANUAL (Strategi Anti-403)
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {token}" 
+    }
 
-    st.caption(f"Status Auth: {auth_source}")
-    
-    # Payload yang mengikuti format pesan/chat LLM (OpenAI Chat Completion Format)
+    # Payload mengikuti format pesan/chat LLM (OpenAI Chat Completion Format)
     payload = {
         "messages": messages,
         "parameters": {
@@ -79,11 +64,10 @@ def generate_response(messages, url, token, temp, max_tok):
 
     try:
         response = requests.post(url, headers=headers, json=payload, verify=False, timeout=120)
-        response.raise_for_status() # Cek error HTTP (termasuk 403)
+        response.raise_for_status() # Cek error HTTP (403, 400, dll.)
 
         result = response.json()
         
-        # Ekstraksi respons dari format OpenAI Chat Completion
         if 'choices' in result and result['choices']:
             return result['choices'][0]['message']['content']
         
@@ -92,45 +76,38 @@ def generate_response(messages, url, token, temp, max_tok):
         
     except requests.exceptions.HTTPError as http_err:
         status_code = http_err.response.status_code
-        if status_code == 403:
-             st.error(f"Error 403 Forbidden: Model Server menolak koneksi. Pastikan Model Server memerlukan Token Otorisasi dan Service Account Anda memiliki izin. Detail: {http_err}")
-        elif status_code == 400:
-             st.error(f"Error 400 Bad Request: Format Payload salah. Detail: {http_err}")
-        else:
-             st.error(f"HTTP Error: {status_code}. Detail: {http_err}")
+        st.error(f"Error HTTP {status_code}: Akses Ditolak. Pastikan TOKEN yang dimasukkan dan URL Eksternal benar. Detail: {http_err}")
         return None
         
     except requests.exceptions.RequestException as e:
-        st.error(f"Error Koneksi Jaringan: Gagal terhubung ke URL Model. Detail: {e}")
+        st.error(f"Error Koneksi: Gagal terhubung ke Model. Detail: {e}")
         return None
 
 # --- Streamlit Session State & UI Logic ---
 
-# Inisialisasi dan Reset pesan jika URL di sidebar berubah
 if "current_url" not in st.session_state or st.session_state.current_url != llm_api_url:
     st.session_state["messages"] = [
-        {"role": "assistant", "content": "Masukkan URL Model di sidebar dan mulai chat."}
+        {"role": "assistant", "content": "Masukkan URL dan Token di sidebar untuk memulai chat."}
     ]
     st.session_state.current_url = llm_api_url
 elif not st.session_state.messages:
     st.session_state["messages"] = [
-        {"role": "assistant", "content": "Masukkan URL Model di sidebar dan mulai chat."}
+        {"role": "assistant", "content": "Masukkan URL dan Token di sidebar untuk memulai chat."}
     ]
 
-# Tampilkan riwayat pesan
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# Tangani input dari pengguna
-if prompt := st.chat_input("Tanyakan sesuatu ke LLM...", disabled=not llm_api_url):
+# Tombol chat hanya aktif jika URL dan Token ada
+if prompt := st.chat_input("Tanyakan sesuatu ke LLM...", disabled=not (llm_api_url and api_token)):
     
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner(f"Memproses permintaan ke {llm_api_url} (Auth: {st.session_state.get('auth_source', '...')})..."):
+        with st.spinner(f"Memproses permintaan ke {llm_api_url} (Auth: Manual Token)..."):
             full_response = generate_response(
                 st.session_state.messages, 
                 llm_api_url, 
