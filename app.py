@@ -3,6 +3,7 @@ import requests
 import json
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
+# Nonaktifkan peringatan SSL (digunakan untuk koneksi internal svc.cluster.local)
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 st.set_page_config(page_title="Dynamic LLM Client", layout="wide")
@@ -12,14 +13,15 @@ st.title("💬 Dynamic LLM Chat Client (OpenShift AI)")
 with st.sidebar:
     st.header("⚙️ Konfigurasi Model")
     
-    # 1. Input URL Endpoint
+    # Input URL Endpoint LLM (fleksibel)
     llm_api_url = st.text_input(
         "Model Inference Endpoint URL", 
-        value="https://chris-deploy.chris-test-project.svc.cluster.local",
-        help="Masukkan URL endpoint model LLM Anda."
+        # Ganti nilai default ini dengan endpoint internal Anda agar lebih cepat
+        value="https://chris-deploy.chris-test-project.svc.cluster.local", 
+        help="Masukkan URL endpoint model LLM Anda (misalnya, dari Model Serving)"
     )
     
-    # 2. Input Opsional untuk Token
+    # Input Opsional untuk Token
     api_token = st.text_input(
         "API Token (Opsional)", 
         type="password", 
@@ -32,15 +34,15 @@ with st.sidebar:
 
 # --- Fungsi untuk Memanggil API LLM ---
 def generate_response(messages, url, token, temp, max_tok):
-    # ... (Kode fungsi generate_response sama seperti sebelumnya) ...
+    
     if not url:
-        st.error("Silakan masukkan URL Endpoint di sidebar.")
-        return None
+        return None # Jangan proses jika URL kosong
 
     headers = {"Content-Type": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
         
+    # Payload yang mengikuti format pesan/chat LLM
     payload = {
         "messages": messages,
         "parameters": {
@@ -51,10 +53,11 @@ def generate_response(messages, url, token, temp, max_tok):
 
     try:
         response = requests.post(url, headers=headers, json=payload, verify=False, timeout=120)
-        response.raise_for_status()
+        response.raise_for_status() # Cek error HTTP
 
         result = response.json()
         
+        # Ekstraksi respons dari format OpenAI Chat Completion
         if 'choices' in result and result['choices']:
             return result['choices'][0]['message']['content']
         
@@ -63,12 +66,11 @@ def generate_response(messages, url, token, temp, max_tok):
         
     except requests.exceptions.RequestException as e:
         st.error(f"Error Koneksi ke Model Endpoint: {e}")
-        st.caption(f"Coba pastikan URL benar: {url} dan service dapat diakses.")
         return None
 
 # --- Streamlit Session State & UI Logic ---
 
-# ... (Kode Session State dan UI Logic sama seperti sebelumnya) ...
+# Inisialisasi dan Reset pesan jika URL di sidebar berubah
 if "current_url" not in st.session_state or st.session_state.current_url != llm_api_url:
     st.session_state["messages"] = [
         {"role": "assistant", "content": "Masukkan URL Model di sidebar untuk memulai chat."}
@@ -79,11 +81,12 @@ elif not st.session_state.messages:
         {"role": "assistant", "content": "Masukkan URL Model di sidebar untuk memulai chat."}
     ]
 
-
+# Tampilkan riwayat pesan
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
+# Tangani input dari pengguna
 if prompt := st.chat_input("Tanyakan sesuatu ke LLM...", disabled=not llm_api_url):
     
     st.session_state.messages.append({"role": "user", "content": prompt})
