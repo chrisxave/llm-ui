@@ -6,7 +6,7 @@ st.set_page_config(page_title="LLM Internal Client", layout="wide")
 st.title("💬 LLM Internal Chat (No Auth)")
 
 # URL Internal langsung ke Service
-INTERNAL_URL = "http://chris-model-test-predictor.chris-test.svc.cluster.local/v1/chat/completions"
+INTERNAL_URL = "http://chris-model-test-predictor.chris-test.svc.cluster.local:8080/v1/chat/completions"
 
 with st.sidebar:
     st.header("⚙️ Parameter")
