@@ -1,8 +1,12 @@
 import streamlit as st
 import requests
+import os
+
+MODEL_EP = os.getenv("INFERENCE_HOST", "chris-model-test-predictor.chris-test.svc.cluster.local")
+MODEL_PORT = os.getenv("INFERENCE_PORT", "8080")
 
 # Konfigurasi Endpoint Internal
-BASE_URL = "http://chris-model-test-predictor.chris-test.svc.cluster.local:8080"
+BASE_URL = f"http://{MODEL_EP}:{MODEL_PORT}"
 
 st.set_page_config(page_title="LLM Monitor", layout="wide")
 
