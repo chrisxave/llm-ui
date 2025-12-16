@@ -17,20 +17,24 @@ with st.sidebar:
 def generate_response(messages, temp, max_tok):
     headers = {"Content-Type": "application/json"}
     payload = {
+        "model": "qwen2.5",  # HARUS sesuai dengan ID di output curl tadi
         "messages": messages,
-        "model": "model", # Isi jika inference server mewajibkan nama model
         "temperature": temp,
         "max_tokens": max_tok
     }
 
     try:
-        # Panggil URL Internal
-        response = requests.post(INTERNAL_URL, headers=headers, json=payload, timeout=120)
+        response = requests.post(
+            "http://chris-model-test-predictor.chris-test.svc.cluster.local:8080/v1/chat/completions", 
+            headers=headers, 
+            json=payload, 
+            timeout=120
+        )
         response.raise_for_status()
         result = response.json()
         return result['choices'][0]['message']['content']
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Gagal memanggil LLM: {e}")
         return None
 
 # --- UI Chat Logic ---
