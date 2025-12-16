@@ -1,51 +1,71 @@
 import streamlit as st
 import requests
 
-# URL Dasar
+# Konfigurasi Endpoint Internal
 BASE_URL = "http://chris-model-test-predictor.chris-test.svc.cluster.local:8080"
 
-# --- Fungsi Auto-Detect Model ---
-def get_active_model():
+st.set_page_config(page_title="LLM Monitor", layout="wide")
+
+# --- 1. Fungsi Deteksi Nama Model Otomatis ---
+@st.cache_data(ttl=60) # Cache selama 1 menit supaya gak nembak terus tiap ngetik
+def get_model_id():
     try:
-        response = requests.get(f"{BASE_URL}/v1/models", timeout=10)
-        response.raise_for_status()
-        models = response.json()
-        # Mengambil ID model pertama yang tersedia
-        return models['data'][0]['id']
-    except Exception as e:
-        st.error(f"Gagal mendeteksi model: {e}")
+        resp = requests.get(f"{BASE_URL}/v1/models", timeout=5)
+        if resp.status_code == 200:
+            return resp.json()['data'][0]['id']
+    except:
         return None
+    return None
 
-# Ambil nama model otomatis saat app dibuka
-if "model_name" not in st.session_state:
-    st.session_state.model_name = get_active_model()
+model_name = get_model_id()
 
-st.title(f"💬 Chat with {st.session_state.model_name or 'Unknown Model'}")
+# --- 2. Header UI ---
+st.title(f"💬 Chat with {model_name if model_name else 'Loading Model...'}")
+if not model_name:
+    st.warning("⚠️ Model belum terdeteksi. Pastikan pod inference sudah 'Ready'.")
+    if st.button("Refresh Koneksi"):
+        st.rerun()
 
-# --- Fungsi Generate Response ---
-def generate_response(messages, temp, max_tok):
-    if not st.session_state.model_name:
-        st.error("Nama model tidak terdeteksi.")
-        return None
+# --- 3. Sidebar Parameter ---
+with st.sidebar:
+    st.header("Settings")
+    temp = st.slider("Temperature", 0.0, 1.0, 0.7)
+    tokens = st.slider("Max Tokens", 64, 4096, 512)
+    if st.button("Clear Chat"):
+        st.session_state.messages = []
+        st.rerun()
 
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "model": st.session_state.model_name, # Pakai hasil parsing otomatis
-        "messages": messages,
-        "temperature": temp,
-        "max_tokens": max_tok
-    }
+# --- 4. Logika Chat History ---
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-    try:
-        response = requests.post(
-            f"{BASE_URL}/v1/chat/completions", 
-            headers=headers, 
-            json=payload, 
-            timeout=120
-        )
-        response.raise_for_status()
-        result = response.json()
-        return result['choices'][0]['message']['content']
-    except Exception as e:
-        st.error(f"Inference Error: {e}")
-        return None
+# Tampilkan chat lama
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+# --- 5. Input Chat & Trigger Inference ---
+if prompt := st.chat_input("Tulis pesan untuk cek utilisasi GPU..."):
+    # Tampilkan pesan user
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    # Panggil LLM
+    with st.chat_message("assistant"):
+        with st.spinner("Generating..."):
+            payload = {
+                "model": model_name,
+                "messages": st.session_state.messages,
+                "temperature": temp,
+                "max_tokens": tokens
+            }
+            try:
+                r = requests.post(f"{BASE_URL}/v1/chat/completions", json=payload, timeout=120)
+                r.raise_for_status()
+                response_text = r.json()['choices'][0]['message']['content']
+                
+                st.markdown(response_text)
+                st.session_state.messages.append({"role": "assistant", "content": response_text})
+            except Exception as e:
+                st.error(f"Gagal mendapat respon: {e}")
