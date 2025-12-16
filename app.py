@@ -1,23 +1,36 @@
 import streamlit as st
 import requests
-import json
 
-st.set_page_config(page_title="LLM Internal Client", layout="wide")
-st.title("💬 LLM Internal Chat (No Auth)")
+# URL Dasar
+BASE_URL = "http://chris-model-test-predictor.chris-test.svc.cluster.local:8080"
 
-# URL Internal langsung ke Service
-INTERNAL_URL = "http://chris-model-test-predictor.chris-test.svc.cluster.local:8080/v1/chat/completions"
+# --- Fungsi Auto-Detect Model ---
+def get_active_model():
+    try:
+        response = requests.get(f"{BASE_URL}/v1/models", timeout=10)
+        response.raise_for_status()
+        models = response.json()
+        # Mengambil ID model pertama yang tersedia
+        return models['data'][0]['id']
+    except Exception as e:
+        st.error(f"Gagal mendeteksi model: {e}")
+        return None
 
-with st.sidebar:
-    st.header("⚙️ Parameter")
-    temperature = st.slider("Temperature", 0.0, 1.0, 0.7, 0.05)
-    max_tokens = st.slider("Max New Tokens", 64, 2048, 512, 64)
-    st.success("Koneksi: Internal Cluster (No Token Required)")
+# Ambil nama model otomatis saat app dibuka
+if "model_name" not in st.session_state:
+    st.session_state.model_name = get_active_model()
 
+st.title(f"💬 Chat with {st.session_state.model_name or 'Unknown Model'}")
+
+# --- Fungsi Generate Response ---
 def generate_response(messages, temp, max_tok):
+    if not st.session_state.model_name:
+        st.error("Nama model tidak terdeteksi.")
+        return None
+
     headers = {"Content-Type": "application/json"}
     payload = {
-        "model": "qwen2.5",  # HARUS sesuai dengan ID di output curl tadi
+        "model": st.session_state.model_name, # Pakai hasil parsing otomatis
         "messages": messages,
         "temperature": temp,
         "max_tokens": max_tok
@@ -25,7 +38,7 @@ def generate_response(messages, temp, max_tok):
 
     try:
         response = requests.post(
-            "http://chris-model-test-predictor.chris-test.svc.cluster.local:8080/v1/chat/completions", 
+            f"{BASE_URL}/v1/chat/completions", 
             headers=headers, 
             json=payload, 
             timeout=120
@@ -34,25 +47,5 @@ def generate_response(messages, temp, max_tok):
         result = response.json()
         return result['choices'][0]['message']['content']
     except Exception as e:
-        st.error(f"Gagal memanggil LLM: {e}")
+        st.error(f"Inference Error: {e}")
         return None
-
-# --- UI Chat Logic ---
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-
-if prompt := st.chat_input("Tanyakan sesuatu untuk trigger GPU..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    with st.chat_message("assistant"):
-        with st.spinner("Inference sedang berjalan di GPU..."):
-            res = generate_response(st.session_state.messages, temperature, max_tokens)
-            if res:
-                st.markdown(res)
-                st.session_state.messages.append({"role": "assistant", "content": res})
