@@ -2,8 +2,8 @@ import streamlit as st
 import requests
 import os
 
-MODEL_EP = os.getenv("INFERENCE_HOST", "chris-model-test-predictor.chris-test.svc.cluster.local")
-MODEL_PORT = os.getenv("INFERENCE_PORT", "8080")
+MODEL_EP = os.getenv("MODEL_EP", "chris-model-test-predictor.chris-test.svc.cluster.local")
+MODEL_PORT = os.getenv("MODEL_PORT", "8080")
 
 # Konfigurasi Endpoint Internal
 BASE_URL = f"http://{MODEL_EP}:{MODEL_PORT}"
